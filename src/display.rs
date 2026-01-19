@@ -13,7 +13,6 @@ const YELLOW: &str = "\x1b[33m";
 const BLUE: &str = "\x1b[34m";
 const GRAY: &str = "\x1b[90m";
 const CYAN: &str = "\x1b[36m";
-const MAGENTA: &str = "\x1b[35m";
 
 // Box drawing characters
 const BOX_TL: &str = "┌";
@@ -30,6 +29,20 @@ const PROG_EMPTY: &str = "░";
 // Spinner frames for animation
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const PROGRESS_SPINNER: &[&str] = &["◐", "◓", "◑", "◒"];
+
+/// Get terminal size (width, height)
+fn get_terminal_size() -> (usize, usize) {
+    // Try to get from environment or use sensible defaults
+    let width = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
+    let height = std::env::var("LINES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+    (width.max(60), height.max(20))
+}
 
 /// Clear the terminal screen
 pub fn clear_screen() {
@@ -63,7 +76,6 @@ pub fn restore_terminal() -> Result<()> {
 
 /// Check for keypress (non-blocking)
 pub fn check_keypress() -> Option<char> {
-    // In a full implementation, this would use termios or crossterm
     None
 }
 
@@ -114,7 +126,10 @@ pub fn render(status: &StackStatus, show_details: bool) {
 
 /// Render with animation frame for watch mode
 pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize) {
-    let width = 60;
+    let (term_width, _term_height) = get_terminal_size();
+    let width = term_width.min(100).max(60);
+    let box_width = (width - 6).min(80);
+    let name_width = (width - 30).min(50).max(25);
 
     // Header box
     println!(
@@ -123,17 +138,17 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
         BOX_H.repeat(width - 2),
         RESET
     );
+
+    let title = "Stack Status";
+    let time_str = format!("Updated: {}", status.timestamp);
+    let padding = width - 4 - title.len() - time_str.len();
     println!(
-        "{}│{}  {}Stack Status{}{}Updated: {}{}{}│{}",
-        DIM,
-        RESET,
-        BOLD,
-        RESET,
-        " ".repeat(width - 38),
-        CYAN,
-        status.timestamp,
-        DIM,
-        RESET
+        "{}│{} {}{}{}{}{}{} {}│{}",
+        DIM, RESET,
+        BOLD, title, RESET,
+        " ".repeat(padding),
+        CYAN, time_str,
+        DIM, RESET
     );
     println!(
         "{}╰{}╯{}",
@@ -156,10 +171,10 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
             ("◯", DIM)
         };
 
-        // PR number
-        let pr_str = branch
+        // PR number and link hint
+        let pr_info = branch
             .pr
-            .map(|n| format!(" {}(#{}){}", DIM, n, RESET))
+            .map(|n| format!(" {}#{}{}", CYAN, n, RESET))
             .unwrap_or_default();
 
         // Overall status indicator (animated for running)
@@ -167,16 +182,26 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
             match summary.overall {
                 CheckStatus::Running => {
                     let spin = progress_spinner(frame);
-                    format!("{}{}  Running{}", YELLOW, spin, RESET)
+                    format!(
+                        "{}{} {} Running ({}/{}){}",
+                        YELLOW, spin, spin,
+                        summary.passed + summary.failed,
+                        summary.total,
+                        RESET
+                    )
                 }
                 CheckStatus::Queued => {
-                    format!("{}○  Queued{}", GRAY, RESET)
+                    format!("{}○ ○ Queued{}", GRAY, RESET)
                 }
                 CheckStatus::Passed => {
-                    format!("{}✓  Passed{}", GREEN, RESET)
+                    format!("{}✓ ✓ All {} passed{}", GREEN, summary.total, RESET)
                 }
                 CheckStatus::Failed => {
-                    format!("{}✗  Failed{}", RED, RESET)
+                    format!(
+                        "{}✗ ✗ {} failed{}, {}{} passed{}",
+                        RED, summary.failed, RESET,
+                        GREEN, summary.passed, RESET
+                    )
                 }
                 _ => {
                     format!("{}{}{}", DIM, summary.text(), RESET)
@@ -185,17 +210,18 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
         } else if branch.is_trunk {
             String::new()
         } else {
-            format!("{}—  no PR{}", DIM, RESET)
+            format!("{}— No PR{}", DIM, RESET)
         };
 
-        // Print branch header line
-        let branch_display = if branch.branch.len() > 35 {
-            format!("{}...", &branch.branch[..32])
+        // Full branch name (or truncate if really long)
+        let branch_display = if branch.branch.len() > name_width {
+            format!("{}…", &branch.branch[..name_width - 1])
         } else {
             branch.branch.clone()
         };
 
-        print!(
+        // Print branch line
+        println!(
             "{}{}{} {}{}{}{}",
             indicator_color,
             indicator,
@@ -203,23 +229,23 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
             if branch.is_current { BOLD } else { "" },
             branch_display,
             if branch.is_current { RESET } else { "" },
-            pr_str,
+            pr_info,
         );
 
-        // Right-align status
-        let used_width = 2 + branch_display.len() + pr_str.len() / 3; // rough estimate accounting for ANSI
-        let padding = if used_width < 45 { 45 - used_width } else { 2 };
-        println!("{}{}", " ".repeat(padding), status_str);
+        // Status on next line, indented
+        if !status_str.is_empty() {
+            println!("    {}", status_str);
+        }
 
-        // Show detailed checks in a nice box
-        if show_details && !branch.is_trunk && branch.checks.is_some() {
+        // Always show checks if we have them (details mode shows more info per check)
+        if !branch.is_trunk && branch.checks.is_some() {
             if let Some(ref checks) = branch.checks {
                 if !checks.is_empty() {
-                    let box_width = 54;
+                    println!();
 
                     // Top border
                     println!(
-                        "  {}{}{}{}{}",
+                        "    {}{}{}{}{}",
                         DIM, BOX_TL, BOX_H.repeat(box_width - 2), BOX_TR, RESET
                     );
 
@@ -229,80 +255,98 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
                             CheckStatus::Failed => ("✗", RED),
                             CheckStatus::Running => (spinner(frame), YELLOW),
                             CheckStatus::Queued => ("○", GRAY),
-                            CheckStatus::Skipped => ("○", GRAY),
+                            CheckStatus::Skipped => ("◌", GRAY),
                             CheckStatus::Cancelled => ("⊘", GRAY),
                             CheckStatus::Unknown => ("?", GRAY),
                         };
 
-                        // Truncate name if needed
-                        let name = if check.name.len() > 28 {
-                            format!("{}...", &check.name[..25])
+                        // Check name - use more space
+                        let check_name_width = box_width - 25;
+                        let name = if check.name.len() > check_name_width {
+                            format!("{}…", &check.name[..check_name_width - 1])
                         } else {
                             check.name.clone()
                         };
 
-                        // Duration or progress indicator
-                        let right_info = match check.status {
+                        // Duration or status indicator
+                        let timing = match check.status {
                             CheckStatus::Passed | CheckStatus::Failed => {
                                 check.duration_secs
-                                    .map(|d| format!("{:>6}", format_duration(d)))
-                                    .unwrap_or_else(|| "      ".to_string())
+                                    .map(|d| format_duration(d))
+                                    .unwrap_or_else(|| "—".to_string())
                             }
                             CheckStatus::Running => {
-                                // Show animated progress
-                                format!("{}..{}", YELLOW, RESET)
+                                "running…".to_string()
                             }
-                            _ => "      ".to_string()
+                            CheckStatus::Queued => "queued".to_string(),
+                            CheckStatus::Skipped => "skipped".to_string(),
+                            CheckStatus::Cancelled => "cancelled".to_string(),
+                            CheckStatus::Unknown => "—".to_string(),
                         };
 
-                        // Status text
-                        let status_text = match check.status {
-                            CheckStatus::Passed => format!("{}done{}", GREEN, RESET),
-                            CheckStatus::Failed => format!("{}fail{}", RED, RESET),
-                            CheckStatus::Running => format!("{}run {}", YELLOW, RESET),
-                            CheckStatus::Queued => format!("{}wait{}", GRAY, RESET),
-                            CheckStatus::Skipped => format!("{}skip{}", GRAY, RESET),
-                            CheckStatus::Cancelled => format!("{}stop{}", GRAY, RESET),
-                            CheckStatus::Unknown => format!("{}????{}", GRAY, RESET),
+                        // Status label
+                        let status_label = match check.status {
+                            CheckStatus::Passed => format!("{}passed{}", GREEN, RESET),
+                            CheckStatus::Failed => format!("{}FAILED{}", RED, RESET),
+                            CheckStatus::Running => format!("{}running{}", YELLOW, RESET),
+                            CheckStatus::Queued => format!("{}queued{}", GRAY, RESET),
+                            CheckStatus::Skipped => format!("{}skipped{}", GRAY, RESET),
+                            CheckStatus::Cancelled => format!("{}stopped{}", GRAY, RESET),
+                            CheckStatus::Unknown => format!("{}unknown{}", GRAY, RESET),
+                        };
+
+                        // Show URL hint in details mode
+                        let url_hint = if show_details && check.url.is_some() {
+                            format!(" {}↗{}", DIM, RESET)
+                        } else {
+                            String::new()
                         };
 
                         println!(
-                            "  {}{}{} {}{} {:<28}  {:>6}  {} {}{}{}",
+                            "    {}{}{} {}{} {:<width$} {:>10}  {}{}  {}{}{}",
                             DIM, BOX_V, RESET,
                             color, icon,
                             name,
-                            right_info,
-                            status_text,
-                            DIM, BOX_V, RESET
+                            timing,
+                            status_label,
+                            url_hint,
+                            DIM, BOX_V, RESET,
+                            width = check_name_width,
                         );
                     }
 
-                    // Progress summary bar
+                    // Progress bar for in-progress checks
                     if let Some(ref summary) = branch.summary {
-                        let completed = summary.passed + summary.failed + summary.skipped + summary.cancelled;
-                        let total = summary.total;
+                        if summary.running > 0 || summary.queued > 0 {
+                            let completed = summary.passed + summary.failed + summary.skipped + summary.cancelled;
+                            let total = summary.total;
+                            let bar_width = (box_width - 20).min(40);
 
-                        if total > 0 && (summary.running > 0 || summary.queued > 0) {
                             println!(
-                                "  {}{}{}{}{}",
+                                "    {}{}{}{}{}",
                                 DIM, BOX_V, RESET,
                                 " ".repeat(box_width - 2),
                                 format!("{}{}{}", DIM, BOX_V, RESET)
                             );
+                            let padding = if box_width > bar_width + 22 {
+                                " ".repeat(box_width - bar_width - 22)
+                            } else {
+                                String::new()
+                            };
                             println!(
-                                "  {}{}{} {}  {}/{}  {}",
+                                "    {}{}{} {} {}/{} complete {}{}{}{}",
                                 DIM, BOX_V, RESET,
-                                render_progress_bar(completed, total, 30),
-                                completed,
-                                total,
-                                format!("{}{}{}", DIM, BOX_V, RESET)
+                                render_progress_bar(completed, total, bar_width),
+                                completed, total,
+                                padding,
+                                DIM, BOX_V, RESET
                             );
                         }
                     }
 
                     // Bottom border
                     println!(
-                        "  {}{}{}{}{}",
+                        "    {}{}{}{}{}",
                         DIM, BOX_BL, BOX_H.repeat(box_width - 2), BOX_BR, RESET
                     );
                 }
@@ -311,7 +355,7 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
 
         // Connector line (except for last item)
         if !is_last {
-            println!("{}│{}", DIM, RESET);
+            println!("{}  │{}", DIM, RESET);
         }
     }
 
@@ -320,14 +364,17 @@ pub fn render_with_frame(status: &StackStatus, show_details: bool, frame: usize)
 
 /// Render the help bar for watch mode
 pub fn render_help_bar() {
+    let (width, _) = get_terminal_size();
+    let bar_width = width.min(100);
+
     println!(
         "{}{}{}",
         DIM,
-        "─".repeat(60),
+        "─".repeat(bar_width),
         RESET
     );
     println!(
-        "  {}[q]{} quit   {}[r]{} refresh   {}[d]{} toggle details   {}[o]{} open PR",
+        "  {}q{} quit   {}r{} refresh   {}d{} details   {}Ctrl+C{} exit",
         BOLD, RESET, BOLD, RESET, BOLD, RESET, BOLD, RESET
     );
 }

@@ -46,46 +46,58 @@ pub async fn get_stack() -> Result<Vec<BranchInfo>> {
 
 /// Parse gt log short output into structured data
 ///
-/// Example output:
+/// Example outputs from gt log short:
 /// ```
-/// ◉ feature-c
-/// │
-/// ◯ feature-b
-/// │
-/// ◯ feature-a
-/// │
-/// ◯ main
+/// ◉    branch-name
+/// ◯    another-branch
+/// │ ◯  side-branch (needs restack)
+/// ◯─┘  main
 /// ```
 fn parse_gt_log_short(output: &str) -> Vec<BranchInfo> {
     let mut branches = Vec::new();
     let trunk_names = ["main", "master", "develop", "trunk"];
 
+    // Characters used for tree drawing that should be stripped
+    let tree_chars: &[char] = &['│', '─', '┘', '┐', '└', '┌', '├', '┤', '┬', '┴', '┼', ' '];
+
     for line in output.lines() {
-        // Skip connector lines (just │)
-        if line.trim() == "│" || line.trim().is_empty() {
+        // Skip empty lines or lines that are just tree connectors
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
             continue;
         }
 
-        // Match lines with branch indicators
-        // ◉ = current branch, ◯ = other branch, ● = trunk indicator
-        let is_current = line.contains('◉');
+        // Check if this line contains a branch indicator
+        let has_current = line.contains('◉');
+        let has_branch = line.contains('◉') || line.contains('◯');
 
-        // Extract branch name (after the indicator character)
-        let branch_name = line
-            .trim()
-            .trim_start_matches(|c| c == '◉' || c == '◯' || c == '●' || c == '│' || c == ' ')
-            .trim()
-            .to_string();
+        if !has_branch {
+            continue;
+        }
+
+        // Find the position of the branch indicator and extract the name after it
+        let branch_name = if let Some(pos) = line.find('◉').or_else(|| line.find('◯')) {
+            // Get everything after the indicator
+            let after_indicator = &line[pos + '◉'.len_utf8()..];
+            // Strip tree drawing characters and whitespace
+            after_indicator
+                .trim_start_matches(tree_chars)
+                .trim()
+                .to_string()
+        } else {
+            continue;
+        };
 
         if branch_name.is_empty() {
             continue;
         }
 
+        // Check if this is a trunk branch
         let is_trunk = trunk_names.iter().any(|&t| branch_name == t);
 
         branches.push(BranchInfo {
             name: branch_name,
-            is_current,
+            is_current: has_current,
             is_trunk,
         });
     }

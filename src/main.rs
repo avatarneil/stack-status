@@ -113,14 +113,6 @@ async fn run_watch_mode(args: &Args, has_gt: bool, has_gh: bool) -> Result<()> {
         if ticks_since_refresh >= ticks_per_refresh {
             ticks_since_refresh = 0;
             status = fetch_status(args, has_gt, has_gh).await?;
-
-            // Check if all checks are complete
-            if status.all_complete() {
-                display::clear_screen();
-                display::render_with_frame(&status, args.details, frame);
-                display::render_complete_message();
-                break;
-            }
         }
 
         // Clear screen and render with current animation frame
