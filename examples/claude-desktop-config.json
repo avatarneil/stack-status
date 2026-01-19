@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "stack-status": {
+      "command": "/usr/local/bin/stack-status",
+      "args": ["--mcp"]
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "stack-status": {
+      "command": "cargo",
+      "args": ["run", "--manifest-path", "${workspaceFolder}/Cargo.toml", "--", "--mcp"],
+      "description": "Graphite stack status with CI check progress"
+    }
+  }
+}
