@@ -82,23 +82,54 @@ async fn run_once(args: &Args, has_gt: bool, has_gh: bool) -> Result<()> {
 }
 
 async fn run_watch_mode(args: &Args, has_gt: bool, has_gh: bool) -> Result<()> {
-    let mut ticker = interval(Duration::from_secs(args.interval));
+    // Animation tick (200ms for smooth spinners)
+    let mut animation_ticker = interval(Duration::from_millis(200));
 
-    // Set up terminal for raw mode to capture key presses
+    // Data refresh interval (user configurable, default 10s)
+    let refresh_interval = args.interval;
+    let mut ticks_since_refresh: u64 = refresh_interval * 5; // Force immediate fetch
+    let ticks_per_refresh = refresh_interval * 5; // 5 ticks per second (200ms each)
+
+    // Animation frame counter
+    let mut frame: usize = 0;
+
+    // Cached status
+    let mut status = fetch_status(args, has_gt, has_gh).await?;
+
+    // Set up terminal
     display::setup_terminal()?;
 
+    // Initial render
+    display::clear_screen();
+    display::render_with_frame(&status, args.details, frame);
+    display::render_help_bar();
+
     loop {
-        ticker.tick().await;
+        animation_ticker.tick().await;
+        frame = frame.wrapping_add(1);
+        ticks_since_refresh += 1;
 
-        let status = fetch_status(args, has_gt, has_gh).await?;
+        // Refresh data periodically
+        if ticks_since_refresh >= ticks_per_refresh {
+            ticks_since_refresh = 0;
+            status = fetch_status(args, has_gt, has_gh).await?;
 
-        // Clear screen and render
+            // Check if all checks are complete
+            if status.all_complete() {
+                display::clear_screen();
+                display::render_with_frame(&status, args.details, frame);
+                display::render_complete_message();
+                break;
+            }
+        }
+
+        // Clear screen and render with current animation frame
         display::clear_screen();
 
         if args.json {
             println!("{}", serde_json::to_string_pretty(&status)?);
         } else {
-            display::render(&status, args.details);
+            display::render_with_frame(&status, args.details, frame);
             display::render_help_bar();
         }
 
@@ -106,15 +137,12 @@ async fn run_watch_mode(args: &Args, has_gt: bool, has_gh: bool) -> Result<()> {
         if let Some(key) = display::check_keypress() {
             match key {
                 'q' => break,
-                'r' => continue, // Force refresh
+                'r' => {
+                    ticks_since_refresh = ticks_per_refresh; // Force refresh
+                    continue;
+                }
                 _ => {}
             }
-        }
-
-        // Check if all checks are complete (exit watch mode)
-        if status.all_complete() {
-            display::render_complete_message();
-            break;
         }
     }
 
