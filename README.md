@@ -19,21 +19,18 @@ The tool gracefully degrades if either CLI is missing.
 
 ## Installation
 
+```bash
+# Install via cargo (recommended)
+cargo install --git https://github.com/avatarneil/stack-status
+```
+
 ### From Source
 
 ```bash
-# Clone and build
-git clone https://github.com/yourusername/stack-status
+git clone https://github.com/avatarneil/stack-status
 cd stack-status
-cargo build --release
-
-# Install globally
 cargo install --path .
 ```
-
-### Pre-built Binaries
-
-Download from the [releases page](https://github.com/yourusername/stack-status/releases).
 
 ## Usage
 
@@ -104,24 +101,65 @@ stack-status --mcp
 
 ## MCP Integration
 
-### Claude Desktop
+### Quick Setup (One-Liners)
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+**Claude Code (CLI):**
+```bash
+# Project-level (recommended)
+mkdir -p .claude && echo '{"mcpServers":{"stack-status":{"command":"stack-status","args":["--mcp"]}}}' > .claude/mcp.json
 
-```json
+# Or global (all projects)
+mkdir -p ~/.claude && echo '{"mcpServers":{"stack-status":{"command":"stack-status","args":["--mcp"]}}}' >> ~/.claude/mcp.json
+```
+
+**Claude Desktop (macOS):**
+```bash
+# First, backup existing config if any
+cp ~/Library/Application\ Support/Claude/claude_desktop_config.json ~/Library/Application\ Support/Claude/claude_desktop_config.json.bak 2>/dev/null || true
+
+# Add stack-status MCP server
+cat > ~/Library/Application\ Support/Claude/claude_desktop_config.json << 'EOF'
 {
   "mcpServers": {
     "stack-status": {
-      "command": "/path/to/stack-status",
+      "command": "stack-status",
       "args": ["--mcp"]
     }
   }
 }
+EOF
 ```
 
-### Claude Code
+**Cursor:**
+```bash
+# Add to Cursor's MCP config
+mkdir -p ~/.cursor && echo '{"mcpServers":{"stack-status":{"command":"stack-status","args":["--mcp"]}}}' > ~/.cursor/mcp.json
+```
 
-Add to `.claude/mcp.json` in your project:
+**Windsurf:**
+```bash
+# Add to Windsurf's MCP config
+mkdir -p ~/.codeium/windsurf && echo '{"mcpServers":{"stack-status":{"command":"stack-status","args":["--mcp"]}}}' > ~/.codeium/windsurf/mcp.json
+```
+
+**VS Code + Continue:**
+```bash
+# Add to Continue's config
+mkdir -p ~/.continue && cat >> ~/.continue/config.json << 'EOF'
+{
+  "mcpServers": [
+    { "name": "stack-status", "command": "stack-status", "args": ["--mcp"] }
+  ]
+}
+EOF
+```
+
+### Manual Configuration
+
+<details>
+<summary>Claude Desktop</summary>
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -133,6 +171,24 @@ Add to `.claude/mcp.json` in your project:
   }
 }
 ```
+</details>
+
+<details>
+<summary>Claude Code</summary>
+
+Add to `.claude/mcp.json` in your project (or `~/.claude/mcp.json` for global):
+
+```json
+{
+  "mcpServers": {
+    "stack-status": {
+      "command": "stack-status",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+</details>
 
 ### Available MCP Tools
 
